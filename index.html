@@ -34,6 +34,19 @@
   .dot{width:8px;height:8px;border-radius:2px;display:inline-block}
 
   main{padding:16px 16px 0}
+  .tabs{display:flex;gap:8px;margin-bottom:14px}
+  .tab{flex:1;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--sub);font-size:14px;font-weight:600}
+  .tab.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .mcard{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:14px}
+  .mcard-head{display:flex;justify-content:space-between;align-items:baseline;padding:14px 16px;border-bottom:1px dashed var(--line)}
+  .mcard-month{font-weight:700;font-size:15px}
+  .mcard-total{font-family:var(--mono);font-weight:700;font-size:16px}
+  .mcat{display:flex;align-items:center;gap:10px;padding:10px 16px}
+  .mcat+.mcat{border-top:1px dashed var(--line)}
+  .mcat-bar{flex:1;height:8px;border-radius:4px;background:var(--paper);overflow:hidden}
+  .mcat-bar div{height:100%}
+  .mcat-label{font-size:13px;min-width:96px}
+  .mcat-amt{font-family:var(--mono);font-size:13px;min-width:64px;text-align:right;color:var(--sub)}
   .chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:14px}
   .chip{flex-shrink:0;display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:13px;white-space:nowrap}
   .chip.active{border-color:var(--blue);background:var(--blue);color:#fff;font-weight:600}
@@ -93,8 +106,15 @@
 </header>
 
 <main id="listView">
-  <div class="chips" id="chips"></div>
-  <div id="ledger"></div>
+  <div class="tabs" id="tabs">
+    <button class="tab active" data-tab="ledger">Ledger</button>
+    <button class="tab" data-tab="months">By month</button>
+  </div>
+  <div id="ledgerTab">
+    <div class="chips" id="chips"></div>
+    <div id="ledger"></div>
+  </div>
+  <div id="monthsTab" class="hide"></div>
 </main>
 
 <main id="addView" class="hide"></main>
@@ -207,7 +227,66 @@ function renderList(){
   wrap.innerHTML = ""; wrap.appendChild(led);
 }
 
-// ---- add / edit form ----
+// ---- monthly breakdown by category ----
+function monthName(key){
+  const [y,m] = key.split("-");
+  return new Date(Number(y), Number(m)-1, 1)
+    .toLocaleString(undefined,{month:"long",year:"numeric"});
+}
+function renderMonths(){
+  const wrap = document.getElementById("monthsTab");
+  if(!expenses.length){
+    wrap.innerHTML = '<div class="empty">No expenses yet. Tap Scan receipt to begin.</div>';
+    return;
+  }
+  // group by YYYY-MM
+  const months = {};
+  expenses.forEach(x=>{
+    const key = (x.date||"").slice(0,7);
+    if(!key) return;
+    (months[key] = months[key] || []).push(x);
+  });
+  const keys = Object.keys(months).sort().reverse(); // newest first
+
+  wrap.innerHTML = keys.map(key=>{
+    const rows = months[key];
+    const monthTotal = rows.reduce((s,x)=>s+(Number(x.total)||0),0);
+    const byCat = {};
+    rows.forEach(x=>byCat[x.category]=(byCat[x.category]||0)+(Number(x.total)||0));
+    const sorted = Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+    const max = sorted.length ? sorted[0][1] : 1;
+
+    const cats = sorted.map(([cid,amt])=>{
+      const pct = max>0 ? (amt/max*100) : 0;
+      return '<div class="mcat">'+
+        '<span class="mcat-label">'+catOf(cid).label+'</span>'+
+        '<span class="mcat-bar"><div style="width:'+pct+'%;background:'+catOf(cid).color+'"></div></span>'+
+        '<span class="mcat-amt">$'+fmt(amt)+'</span>'+
+      '</div>';
+    }).join("");
+
+    return '<div class="mcard">'+
+      '<div class="mcard-head"><span class="mcard-month">'+monthName(key)+'</span>'+
+      '<span class="mcard-total">$'+fmt(monthTotal)+'</span></div>'+
+      cats+'</div>';
+  }).join("");
+}
+
+// ---- tabs ----
+let activeTab = "ledger";
+function setTab(tab){
+  activeTab = tab;
+  document.querySelectorAll(".tab").forEach(b=>
+    b.classList.toggle("active", b.dataset.tab===tab));
+  document.getElementById("ledgerTab").classList.toggle("hide", tab!=="ledger");
+  document.getElementById("monthsTab").classList.toggle("hide", tab!=="months");
+  if(tab==="months") renderMonths();
+}
+document.querySelectorAll(".tab").forEach(b=>{
+  b.onclick = ()=>setTab(b.dataset.tab);
+});
+
+
 function blankDraft(){
   draft = {id:Date.now(),merchant:"",date:new Date().toISOString().slice(0,10),
     total:0,tax:0,currency:"USD",category:"other",items:[],note:"",image:null};
@@ -414,7 +493,7 @@ async function processImage(file){
 document.getElementById("scanBtn").onclick = startScan;
 document.getElementById("manualBtn").onclick = blankDraft;
 
-function renderAll(){ renderHeader(); renderChips(); renderList(); }
+function renderAll(){ renderHeader(); renderChips(); renderList(); if(activeTab==="months") renderMonths(); }
 load();
 renderAll();
 </script>
