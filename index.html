@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#243A8E">
+<title>Receipt Ledger</title>
+<style>
+  :root{
+    --paper:#F6F2E9; --card:#fff; --ink:#1C2230; --sub:#6B7280;
+    --line:#E2DCCE; --blue:#243A8E; --blueSoft:#EEF0FA; --red:#B23B3B;
+    --mono:'SF Mono','Roboto Mono',ui-monospace,Menlo,monospace;
+    --sans:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0}
+  body{background:var(--paper);font-family:var(--sans);color:var(--ink);padding-bottom:96px}
+  button{font-family:inherit;cursor:pointer;border:none}
+  input,select{font-family:inherit}
+  button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+  @keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
+  @keyframes slideUp{from{transform:translateY(12px);opacity:0}to{transform:translateY(0);opacity:1}}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+
+  header{background:var(--card);border-bottom:1px solid var(--line)}
+  .perf{height:8px;background:radial-gradient(circle at 6px 8px,var(--paper) 5px,transparent 5px) repeat-x;background-size:12px 8px}
+  .head-pad{padding:18px 20px 20px}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:2px;color:var(--sub);text-transform:uppercase}
+  .total{font-family:var(--mono);font-size:40px;font-weight:700;letter-spacing:-1px;margin-top:4px}
+  .total span{font-size:22px;color:var(--sub)}
+  .catbar{display:flex;gap:4px;margin-top:14px;border-radius:6px;overflow:hidden;height:8px}
+  .catbar div{height:100%}
+  .legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px}
+  .legend span{font-size:12px;color:var(--sub);display:flex;align-items:center;gap:5px}
+  .dot{width:8px;height:8px;border-radius:2px;display:inline-block}
+
+  main{padding:16px 16px 0}
+  .chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:14px}
+  .chip{flex-shrink:0;display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:13px;white-space:nowrap}
+  .chip.active{border-color:var(--blue);background:var(--blue);color:#fff;font-weight:600}
+
+  .ledger{background:var(--card);border-radius:14px;border:1px solid var(--line);overflow:hidden}
+  .row{display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer}
+  .row:active{background:var(--blueSoft)}
+  .row+.row-sep{border-top:1px dashed var(--line);margin:0 16px}
+  .ico{width:38px;height:38px;border-radius:9px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+  .ico span{width:12px;height:12px;border-radius:3px}
+  .merch{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .meta{font-size:12.5px;color:var(--sub);margin-top:2px}
+  .amt{font-family:var(--mono);font-weight:700;font-size:15.5px}
+  .empty{text-align:center;padding:60px 20px;color:var(--sub);font-size:14px}
+
+  .field{margin-bottom:14px}
+  .field.flex{flex:1}
+  .label{font-size:12px;font-weight:600;color:var(--sub);margin-bottom:6px;letter-spacing:.3px}
+  .inp{width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--card);font-size:15px;color:var(--ink)}
+  .inp.mono{font-family:var(--mono)}
+  .pair{display:flex;gap:12px}
+  .catpick{display:flex;flex-wrap:wrap;gap:8px}
+  .catpick button{border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 12px;border-radius:999px;font-size:13px}
+  .items{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:4px 0}
+  .item{display:flex;justify-content:space-between;padding:8px 14px;font-family:var(--mono);font-size:13px}
+  .item+.item{border-top:1px dashed var(--line)}
+  .item span:first-child{color:var(--sub)}
+
+  .actions{display:flex;gap:12px;margin-top:20px}
+  .btn{padding:13px 16px;border-radius:11px;font-size:15px;font-weight:600}
+  .btn-primary{background:var(--blue);color:#fff}
+  .btn-ghost{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+  .btn-danger{background:var(--card);color:var(--red);border:1px solid var(--red)}
+
+  nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);padding:12px 16px calc(12px + env(safe-area-inset-bottom));display:flex;gap:12px}
+  nav .btn{flex:1}
+  nav .btn.scan{flex:1.6;display:flex;align-items:center;justify-content:center;gap:8px}
+
+  .overlay{position:fixed;inset:0;background:rgba(28,34,48,.55);display:flex;align-items:center;justify-content:center;padding:24px;z-index:50}
+  .modal{background:var(--card);border-radius:16px;padding:22px;width:100%;max-width:360px;border:1px solid var(--line)}
+  .scanning{font-family:var(--mono);font-size:13px;letter-spacing:2px;color:var(--blue);animation:pulse 1.2s infinite;text-align:center}
+  .receipt-img{width:100%;max-height:220px;object-fit:contain;background:#000;border-radius:12px;margin-bottom:16px}
+  .hide{display:none}
+  .hint{font-size:13px;color:var(--sub);line-height:1.6;margin-top:6px}
+  a{color:var(--blue)}
+</style>
+</head>
+<body>
+<header>
+  <div class="perf"></div>
+  <div class="head-pad">
+    <div class="eyebrow" id="monthLabel"></div>
+    <div class="total" id="monthTotal"><span>$</span>0.00</div>
+    <div class="catbar" id="catbar"></div>
+    <div class="legend" id="legend"></div>
+  </div>
+</header>
+
+<main id="listView">
+  <div class="chips" id="chips"></div>
+  <div id="ledger"></div>
+</main>
+
+<main id="addView" class="hide"></main>
+
+<nav id="nav">
+  <button class="btn btn-ghost" id="manualBtn">Add manually</button>
+  <button class="btn btn-primary scan" id="scanBtn">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+    Scan receipt
+  </button>
+</nav>
+
+<!-- Real file input: on Android this opens Gallery / Camera chooser -->
+<input type="file" id="fileInput" accept="image/*" class="hide">
+
+<div id="modalRoot"></div>
+
+<script>
+const CATEGORIES = [
+  {id:"food",label:"Food & Dining",color:"#C2622C"},
+  {id:"groceries",label:"Groceries",color:"#1F7A4D"},
+  {id:"transport",label:"Transport",color:"#243A8E"},
+  {id:"shopping",label:"Shopping",color:"#8B3A8B"},
+  {id:"utilities",label:"Utilities",color:"#2A8B9B"},
+  {id:"health",label:"Health",color:"#B23B3B"},
+  {id:"travel",label:"Travel",color:"#B8852A"},
+  {id:"other",label:"Other",color:"#6B7280"},
+];
+const catOf = id => CATEGORIES.find(c=>c.id===id) || CATEGORIES[7];
+const fmt = n => (Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const KEY_STORE = "rl_apikey";
+const EXP_STORE = "rl_expenses";
+
+let expenses = [];
+let filter = "all";
+let draft = null;
+
+// ---- persistence (localStorage works in a normal browser) ----
+function load(){
+  try{ expenses = JSON.parse(localStorage.getItem(EXP_STORE)) || []; }catch{ expenses = []; }
+}
+function save(){ localStorage.setItem(EXP_STORE, JSON.stringify(expenses)); }
+function getKey(){ return localStorage.getItem(KEY_STORE) || ""; }
+function setKey(k){ localStorage.setItem(KEY_STORE, k); }
+
+// ---- header / dashboard ----
+function renderHeader(){
+  const now = new Date();
+  const monthKey = now.toISOString().slice(0,7);
+  document.getElementById("monthLabel").textContent =
+    now.toLocaleString(undefined,{month:"long",year:"numeric"}) + " · spent so far";
+  const month = expenses.filter(x => (x.date||"").startsWith(monthKey));
+  const total = month.reduce((s,x)=>s+(Number(x.total)||0),0);
+  document.getElementById("monthTotal").innerHTML = '<span>$</span>'+fmt(total);
+
+  const byCat = {};
+  month.forEach(x => byCat[x.category] = (byCat[x.category]||0) + (Number(x.total)||0));
+  const sorted = Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+  const bar = document.getElementById("catbar");
+  const legend = document.getElementById("legend");
+  bar.innerHTML = ""; legend.innerHTML = "";
+  if(total>0){
+    sorted.forEach(([cid,amt])=>{
+      const d=document.createElement("div");
+      d.style.background=catOf(cid).color; d.style.width=(amt/total*100)+"%";
+      d.title=catOf(cid).label; bar.appendChild(d);
+    });
+    sorted.slice(0,4).forEach(([cid,amt])=>{
+      const s=document.createElement("span");
+      s.innerHTML='<span class="dot" style="background:'+catOf(cid).color+'"></span>'+catOf(cid).label+' · $'+fmt(amt);
+      legend.appendChild(s);
+    });
+  }
+}
+
+// ---- list ----
+function renderChips(){
+  const c = document.getElementById("chips");
+  c.innerHTML = "";
+  const mk = (id,label,color)=>{
+    const b=document.createElement("button");
+    b.className="chip"+(filter===id?" active":"");
+    b.innerHTML=(color?'<span class="dot" style="background:'+(filter===id?'#fff':color)+'"></span>':'')+label;
+    b.onclick=()=>{filter=id;renderChips();renderList();};
+    c.appendChild(b);
+  };
+  mk("all","All");
+  CATEGORIES.forEach(cat=>mk(cat.id,cat.label,cat.color));
+}
+function renderList(){
+  const wrap = document.getElementById("ledger");
+  const rows = filter==="all" ? expenses : expenses.filter(x=>x.category===filter);
+  if(!rows.length){
+    wrap.innerHTML = '<div class="empty">'+(filter==="all"
+      ? "No expenses yet. Tap Scan receipt to begin." : "Nothing in this category.")+'</div>';
+    return;
+  }
+  const led = document.createElement("div"); led.className="ledger";
+  rows.forEach((x,i)=>{
+    if(i>0){ const sep=document.createElement("div"); sep.className="row-sep"; led.appendChild(sep); }
+    const r=document.createElement("div"); r.className="row";
+    r.innerHTML =
+      '<span class="ico" style="background:'+catOf(x.category).color+'1A"><span style="background:'+catOf(x.category).color+'"></span></span>'+
+      '<div style="flex:1;min-width:0"><div class="merch">'+(x.merchant||"Untitled expense")+'</div>'+
+      '<div class="meta">'+catOf(x.category).label+' · '+x.date+'</div></div>'+
+      '<div class="amt">$'+fmt(x.total)+'</div>';
+    r.onclick=()=>openEdit(x);
+    led.appendChild(r);
+  });
+  wrap.innerHTML = ""; wrap.appendChild(led);
+}
+
+// ---- add / edit form ----
+function blankDraft(){
+  draft = {id:Date.now(),merchant:"",date:new Date().toISOString().slice(0,10),
+    total:0,tax:0,currency:"USD",category:"other",items:[],note:"",image:null};
+  renderForm();
+}
+function openEdit(x){ draft = JSON.parse(JSON.stringify(x)); renderForm(); }
+
+function renderForm(){
+  document.getElementById("listView").classList.add("hide");
+  document.getElementById("nav").classList.add("hide");
+  const v = document.getElementById("addView");
+  v.classList.remove("hide");
+  v.style.animation = "slideUp .25s ease";
+  const isEdit = expenses.some(e=>e.id===draft.id);
+
+  v.innerHTML =
+    (draft.image ? '<img class="receipt-img" src="'+draft.image+'" alt="Receipt">' : '') +
+    field("Merchant", inp("merchant","Where did you spend?")) +
+    '<div class="pair">'+ field("Total", inp("total","",true,"number"),true) +
+                          field("Date", inp("date","",false,"date"),true) +'</div>'+
+    '<div class="pair">'+ field("Tax", inp("tax","",true,"number"),true) +
+                          field("Currency", inp("currency","",true),true) +'</div>'+
+    field("Category", catPicker()) +
+    (draft.items&&draft.items.length ? field("Line items (from receipt)", itemsHtml()) : "") +
+    field("Note", inp("note","Optional")) +
+    '<div class="actions">'+
+      '<button class="btn btn-ghost" id="cancelBtn" style="flex:1">Cancel</button>'+
+      (isEdit?'<button class="btn btn-danger" id="deleteBtn" style="flex:1">Delete</button>':'')+
+      '<button class="btn btn-primary" id="saveBtn" style="flex:1.4">Save expense</button>'+
+    '</div>';
+
+  v.querySelectorAll("[data-k]").forEach(el=>{
+    el.oninput = e=>{
+      let val = e.target.value;
+      if(el.dataset.k==="currency") val = val.toUpperCase();
+      draft[el.dataset.k] = val;
+    };
+  });
+  v.querySelectorAll("[data-cat]").forEach(b=>{
+    b.onclick=()=>{ draft.category=b.dataset.cat; renderForm(); };
+  });
+  document.getElementById("cancelBtn").onclick = closeForm;
+  document.getElementById("saveBtn").onclick = saveDraft;
+  const del = document.getElementById("deleteBtn");
+  if(del) del.onclick = ()=>{ expenses=expenses.filter(e=>e.id!==draft.id); save(); closeForm(); };
+}
+function field(label,inner,flex){return '<div class="field'+(flex?" flex":"")+'"><div class="label">'+label+'</div>'+inner+'</div>';}
+function inp(k,ph,mono,type){
+  const t=type||"text";
+  return '<input class="inp'+(mono?" mono":"")+'" data-k="'+k+'" type="'+t+'" '+(t==="number"?'inputmode="decimal"':'')+
+    ' value="'+String(draft[k]??"").replace(/"/g,"&quot;")+'" placeholder="'+(ph||"")+'">';
+}
+function catPicker(){
+  return '<div class="catpick">'+CATEGORIES.map(c=>{
+    const on=draft.category===c.id;
+    return '<button data-cat="'+c.id+'" style="'+(on?'border-color:'+c.color+';background:'+c.color+'14;color:'+c.color+';font-weight:600':'')+'">'+c.label+'</button>';
+  }).join("")+'</div>';
+}
+function itemsHtml(){
+  return '<div class="items">'+draft.items.map(it=>
+    '<div class="item"><span>'+(it.name||"")+'</span><span>$'+fmt(it.price)+'</span></div>').join("")+'</div>';
+}
+function saveDraft(){
+  const exists = expenses.some(e=>e.id===draft.id);
+  draft.total = Number(draft.total)||0; draft.tax = Number(draft.tax)||0;
+  if(exists) expenses = expenses.map(e=>e.id===draft.id?draft:e);
+  else expenses = [draft, ...expenses];
+  expenses.sort((a,b)=>a.date<b.date?1:-1);
+  save(); closeForm();
+}
+function closeForm(){
+  draft=null;
+  document.getElementById("addView").classList.add("hide");
+  document.getElementById("listView").classList.remove("hide");
+  document.getElementById("nav").classList.remove("hide");
+  renderAll();
+}
+
+// ---- modals ----
+function showModal(html){ document.getElementById("modalRoot").innerHTML = '<div class="overlay">'+html+'</div>'; }
+function closeModal(){ document.getElementById("modalRoot").innerHTML = ""; }
+
+function askForKey(then){
+  showModal('<div class="modal">'+
+    '<div style="font-weight:700;font-size:17px;margin-bottom:4px">Connect your Claude API key</div>'+
+    '<div class="hint">Stored only on this device. Get one at <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a>. You can revoke it anytime.</div>'+
+    '<input class="inp mono" id="keyInp" type="password" placeholder="sk-ant-..." style="margin:14px 0">'+
+    '<div class="actions" style="margin-top:0">'+
+      '<button class="btn btn-ghost" id="keyCancel" style="flex:1">Cancel</button>'+
+      '<button class="btn btn-primary" id="keySave" style="flex:1.4">Save key</button>'+
+    '</div></div>');
+  document.getElementById("keyInp").value = getKey();
+  document.getElementById("keyCancel").onclick = closeModal;
+  document.getElementById("keySave").onclick = ()=>{
+    const k=document.getElementById("keyInp").value.trim();
+    if(k){ setKey(k); closeModal(); if(then) then(); }
+  };
+}
+
+// ---- the scan pipeline ----
+function startScan(){
+  if(!getKey()){ askForKey(()=>document.getElementById("fileInput").click()); return; }
+  document.getElementById("fileInput").click();
+}
+
+document.getElementById("fileInput").addEventListener("change", async e=>{
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if(!file) return;
+  await processImage(file);
+});
+
+// Resize an image file to fit within maxDim on its longest side, return JPEG base64.
+function downscale(file, maxDim){
+  return new Promise((resolve, reject)=>{
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = ()=>{
+      URL.revokeObjectURL(url);
+      let {width:w, height:h} = img;
+      if(Math.max(w,h) > maxDim){
+        const s = maxDim / Math.max(w,h);
+        w = Math.round(w*s); h = Math.round(h*s);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+      resolve({ base64: dataUrl.split(",")[1], media_type: "image/jpeg" });
+    };
+    img.onerror = ()=>{ URL.revokeObjectURL(url); reject(new Error("Couldn't load that image")); };
+    img.src = url;
+  });
+}
+
+async function processImage(file){
+  showModal('<div class="modal"><div class="scanning">READING RECEIPT…</div>'+
+    '<div class="hint" style="text-align:center;margin-top:8px">Pulling out merchant, date, total and category</div></div>');
+  try{
+    // Phone cameras shoot >8000px; Claude caps at 8000px and uses ~1568px max
+    // internally, so downscale first — smaller is faster and cheaper too.
+    const {base64, media_type} = await downscale(file, 1568);
+    const prompt = 'You are reading a photographed receipt. Extract the expense details and respond with ONLY a JSON object, no markdown, no preamble. Use this exact shape:\n'+
+      '{"merchant":"store name or empty","date":"YYYY-MM-DD or empty","total":number,"tax":number,'+
+      '"currency":"ISO code, default USD","category":one of ["food","groceries","transport","shopping","utilities","health","travel","other"],'+
+      '"items":[{"name":"line item","price":number}]}\n'+
+      'Pick the category that best matches the merchant/items. Use defaults if a field is unreadable.';
+
+    const resp = await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST",
+      headers:{
+        "content-type":"application/json",
+        "x-api-key":getKey(),
+        "anthropic-version":"2023-06-01",
+        "anthropic-dangerous-direct-browser-access":"true"
+      },
+      body:JSON.stringify({
+        model:"claude-sonnet-4-6",
+        max_tokens:1000,
+        messages:[{role:"user",content:[
+          {type:"image",source:{type:"base64",media_type,data:base64}},
+          {type:"text",text:prompt}
+        ]}]
+      })
+    });
+    const data = await resp.json();
+    if(data.type==="error" || !data.content){
+      const msg = data.error && data.error.message ? data.error.message : "API request failed";
+      throw new Error(msg);
+    }
+    const text = data.content.filter(b=>b.type==="text").map(b=>b.text).join("\n");
+    const parsed = JSON.parse(text.replace(/```json|```/g,"").trim());
+    closeModal();
+    draft = {
+      id:Date.now(),
+      merchant:parsed.merchant||"",
+      date:parsed.date||new Date().toISOString().slice(0,10),
+      total:parsed.total||0, tax:parsed.tax||0,
+      currency:parsed.currency||"USD",
+      category:catOf(parsed.category).id,
+      items:Array.isArray(parsed.items)?parsed.items:[],
+      note:"", image:"data:"+media_type+";base64,"+base64
+    };
+    renderForm();
+  }catch(err){
+    const keyish = /api[_ ]?key|authentication|x-api-key|401/i.test(err.message||"");
+    showModal('<div class="modal">'+
+      '<div style="font-weight:700;color:var(--red);margin-bottom:8px">Scan failed</div>'+
+      '<div class="hint">'+(keyish
+        ? "That looks like an API key problem. Re-enter your key and try again."
+        : "Couldn\'t read that receipt: "+(err.message||"unknown error")+". Try a clearer photo, or add it by hand.")+'</div>'+
+      '<div class="actions">'+
+        '<button class="btn btn-ghost" id="errHand" style="flex:1">Add by hand</button>'+
+        (keyish?'<button class="btn btn-primary" id="errKey" style="flex:1">Fix key</button>'
+               :'<button class="btn btn-primary" id="errRetry" style="flex:1">Retry photo</button>')+
+      '</div></div>');
+    document.getElementById("errHand").onclick=()=>{closeModal();blankDraft();};
+    const rk=document.getElementById("errKey"); if(rk) rk.onclick=()=>{closeModal();askForKey(startScan);};
+    const rr=document.getElementById("errRetry"); if(rr) rr.onclick=()=>{closeModal();startScan();};
+  }
+}
+
+// ---- wire up ----
+document.getElementById("scanBtn").onclick = startScan;
+document.getElementById("manualBtn").onclick = blankDraft;
+
+function renderAll(){ renderHeader(); renderChips(); renderList(); }
+load();
+renderAll();
+</script>
+</body>
+</html>
