@@ -23,7 +23,19 @@
 
   header{background:var(--card);border-bottom:1px solid var(--line)}
   .perf{height:8px;background:radial-gradient(circle at 6px 8px,var(--paper) 5px,transparent 5px) repeat-x;background-size:12px 8px}
-  .head-pad{padding:18px 20px 20px}
+  .head-pad{padding:18px 20px 20px;position:relative}
+  .gear{position:absolute;top:14px;right:16px;background:transparent;border:none;font-size:20px;color:var(--sub);line-height:1;padding:4px}
+  .search{margin-bottom:10px}
+  .ranges{display:flex;gap:8px;margin-bottom:12px}
+  .range{flex:1;padding:8px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--sub);font-size:13px}
+  .range.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .mcat-cap{font-family:var(--mono);font-size:11px;margin-top:3px}
+  .over{color:var(--red);font-weight:600}
+  .modal-list{max-height:50vh;overflow-y:auto;margin:8px 0}
+  .cat-edit-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px dashed var(--line)}
+  .cat-edit-row input{flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--line);font-size:14px}
+  .cat-edit-row .bud{width:84px;flex:none}
+  .cat-swatch{width:16px;height:16px;border-radius:4px;flex-shrink:0}
   .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:2px;color:var(--sub);text-transform:uppercase}
   .total{font-family:var(--mono);font-size:40px;font-weight:700;letter-spacing:-1px;margin-top:4px}
   .total span{font-size:22px;color:var(--sub)}
@@ -98,6 +110,7 @@
 <header>
   <div class="perf"></div>
   <div class="head-pad">
+    <button class="gear" id="settingsBtn" aria-label="Settings">⚙</button>
     <div class="eyebrow" id="monthLabel"></div>
     <div class="total" id="monthTotal"><span>$</span>0.00</div>
     <div class="catbar" id="catbar"></div>
@@ -111,6 +124,12 @@
     <button class="tab" data-tab="months">By month</button>
   </div>
   <div id="ledgerTab">
+    <input class="inp search" id="searchInp" type="search" placeholder="Search merchant, note, category…">
+    <div class="ranges" id="ranges">
+      <button class="range active" data-range="all">All time</button>
+      <button class="range" data-range="thismonth">This month</button>
+      <button class="range" data-range="lastmonth">Last month</button>
+    </div>
     <div class="chips" id="chips"></div>
     <div id="ledger"></div>
   </div>
@@ -129,11 +148,12 @@
 
 <!-- Real file input: on Android this opens Gallery / Camera chooser -->
 <input type="file" id="fileInput" accept="image/*" class="hide">
+<input type="file" id="importInput" accept="application/json,.json" class="hide">
 
 <div id="modalRoot"></div>
 
 <script>
-const CATEGORIES = [
+const DEFAULT_CATEGORIES = [
   {id:"food",label:"Food & Dining",color:"#C2622C"},
   {id:"groceries",label:"Groceries",color:"#1F7A4D"},
   {id:"transport",label:"Transport",color:"#243A8E"},
@@ -143,20 +163,31 @@ const CATEGORIES = [
   {id:"travel",label:"Travel",color:"#B8852A"},
   {id:"other",label:"Other",color:"#6B7280"},
 ];
-const catOf = id => CATEGORIES.find(c=>c.id===id) || CATEGORIES[7];
+const PALETTE = ["#C2622C","#1F7A4D","#243A8E","#8B3A8B","#2A8B9B","#B23B3B","#B8852A","#6B7280","#7A5C2E","#4B6043","#5D3A8B","#9B2A6B"];
+let CATEGORIES = DEFAULT_CATEGORIES.slice();
+const catOf = id => CATEGORIES.find(c=>c.id===id) || {id:"other",label:"Other",color:"#6B7280"};
 const fmt = n => (Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 const KEY_STORE = "rl_apikey";
 const EXP_STORE = "rl_expenses";
+const CAT_STORE = "rl_categories";
+const BUDGET_STORE = "rl_budgets";
 
 let expenses = [];
+let budgets = {};         // { categoryId: monthlyCapNumber }
 let filter = "all";
+let search = "";
+let rangeMode = "all";    // all | thismonth | lastmonth
 let draft = null;
 
 // ---- persistence (localStorage works in a normal browser) ----
 function load(){
   try{ expenses = JSON.parse(localStorage.getItem(EXP_STORE)) || []; }catch{ expenses = []; }
+  try{ const c = JSON.parse(localStorage.getItem(CAT_STORE)); if(Array.isArray(c)&&c.length) CATEGORIES = c; }catch{}
+  try{ budgets = JSON.parse(localStorage.getItem(BUDGET_STORE)) || {}; }catch{ budgets = {}; }
 }
 function save(){ localStorage.setItem(EXP_STORE, JSON.stringify(expenses)); }
+function saveCats(){ localStorage.setItem(CAT_STORE, JSON.stringify(CATEGORIES)); }
+function saveBudgets(){ localStorage.setItem(BUDGET_STORE, JSON.stringify(budgets)); }
 function getKey(){ return localStorage.getItem(KEY_STORE) || ""; }
 function setKey(k){ localStorage.setItem(KEY_STORE, k); }
 
@@ -204,12 +235,29 @@ function renderChips(){
   mk("all","All");
   CATEGORIES.forEach(cat=>mk(cat.id,cat.label,cat.color));
 }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function monthKeyNow(offset){
+  const d = new Date(); d.setDate(1); d.setMonth(d.getMonth()+(offset||0));
+  return d.toISOString().slice(0,7);
+}
+function passesFilters(x){
+  if(filter!=="all" && x.category!==filter) return false;
+  if(rangeMode==="thismonth" && !(x.date||"").startsWith(monthKeyNow(0))) return false;
+  if(rangeMode==="lastmonth" && !(x.date||"").startsWith(monthKeyNow(-1))) return false;
+  if(search){
+    const q = search.toLowerCase();
+    const hay = ((x.merchant||"")+" "+(x.note||"")+" "+catOf(x.category).label).toLowerCase();
+    if(!hay.includes(q)) return false;
+  }
+  return true;
+}
 function renderList(){
   const wrap = document.getElementById("ledger");
-  const rows = filter==="all" ? expenses : expenses.filter(x=>x.category===filter);
+  const rows = expenses.filter(passesFilters);
   if(!rows.length){
-    wrap.innerHTML = '<div class="empty">'+(filter==="all"
-      ? "No expenses yet. Tap Scan receipt to begin." : "Nothing in this category.")+'</div>';
+    const anyFilter = filter!=="all" || search || rangeMode!=="all";
+    wrap.innerHTML = '<div class="empty">'+(anyFilter
+      ? "No matching expenses." : "No expenses yet. Tap Scan receipt to begin.")+'</div>';
     return;
   }
   const led = document.createElement("div"); led.className="ledger";
@@ -218,8 +266,8 @@ function renderList(){
     const r=document.createElement("div"); r.className="row";
     r.innerHTML =
       '<span class="ico" style="background:'+catOf(x.category).color+'1A"><span style="background:'+catOf(x.category).color+'"></span></span>'+
-      '<div style="flex:1;min-width:0"><div class="merch">'+(x.merchant||"Untitled expense")+'</div>'+
-      '<div class="meta">'+catOf(x.category).label+' · '+x.date+'</div></div>'+
+      '<div style="flex:1;min-width:0"><div class="merch">'+esc(x.merchant||"Untitled expense")+'</div>'+
+      '<div class="meta">'+esc(catOf(x.category).label)+' · '+esc(x.date)+'</div></div>'+
       '<div class="amt">$'+fmt(x.total)+'</div>';
     r.onclick=()=>openEdit(x);
     led.appendChild(r);
@@ -258,10 +306,19 @@ function renderMonths(){
 
     const cats = sorted.map(([cid,amt])=>{
       const pct = max>0 ? (amt/max*100) : 0;
-      return '<div class="mcat">'+
-        '<span class="mcat-label">'+catOf(cid).label+'</span>'+
+      const cap = Number(budgets[cid])||0;
+      let capLine = "";
+      if(cap>0){
+        const over = amt>cap;
+        const capPct = Math.min(100, amt/cap*100);
+        capLine = '<div class="mcat-cap'+(over?' over':'')+'" style="color:'+(over?'':'var(--sub)')+'">'+
+          '$'+fmt(amt)+' of $'+fmt(cap)+(over?' · over by $'+fmt(amt-cap):' ('+Math.round(capPct)+'%)')+'</div>';
+      }
+      return '<div class="mcat" style="flex-wrap:wrap">'+
+        '<span class="mcat-label">'+esc(catOf(cid).label)+'</span>'+
         '<span class="mcat-bar"><div style="width:'+pct+'%;background:'+catOf(cid).color+'"></div></span>'+
         '<span class="mcat-amt">$'+fmt(amt)+'</span>'+
+        capLine+
       '</div>';
     }).join("");
 
@@ -284,6 +341,139 @@ function setTab(tab){
 }
 document.querySelectorAll(".tab").forEach(b=>{
   b.onclick = ()=>setTab(b.dataset.tab);
+});
+
+// ---- search + range ----
+document.getElementById("searchInp").addEventListener("input", e=>{
+  search = e.target.value.trim(); renderList();
+});
+document.querySelectorAll(".range").forEach(b=>{
+  b.onclick = ()=>{
+    rangeMode = b.dataset.range;
+    document.querySelectorAll(".range").forEach(r=>r.classList.toggle("active", r===b));
+    renderList();
+  };
+});
+
+// ---- settings: categories, budgets, export/import ----
+document.getElementById("settingsBtn").onclick = openSettings;
+
+function openSettings(){
+  const rows = CATEGORIES.map(c=>
+    '<div class="cat-edit-row">'+
+      '<span class="cat-swatch" style="background:'+c.color+'"></span>'+
+      '<input data-catid="'+c.id+'" value="'+esc(c.label)+'">'+
+      '<input class="inp mono bud" data-budid="'+c.id+'" type="number" inputmode="decimal" placeholder="cap" value="'+(budgets[c.id]?esc(budgets[c.id]):"")+'">'+
+    '</div>').join("");
+  showModal('<div class="modal" style="max-width:380px">'+
+    '<div style="font-weight:700;font-size:17px;margin-bottom:2px">Settings</div>'+
+    '<div class="hint">Rename categories and set a monthly budget cap (leave blank for none). Existing expenses keep their category when you rename.</div>'+
+    '<div class="modal-list">'+rows+
+      '<div class="cat-edit-row" style="border-top:none;margin-top:6px">'+
+        '<span class="cat-swatch" style="background:var(--line)"></span>'+
+        '<input id="newCatName" placeholder="Add a category…">'+
+        '<button class="btn btn-ghost bud" id="addCatBtn" style="padding:8px 0">Add</button>'+
+      '</div>'+
+    '</div>'+
+    '<div style="border-top:1px dashed var(--line);padding-top:12px;margin-top:4px">'+
+      '<div class="label">Backup & data</div>'+
+      '<div class="actions" style="margin-top:0">'+
+        '<button class="btn btn-ghost" id="expJson" style="flex:1">Export JSON</button>'+
+        '<button class="btn btn-ghost" id="expCsv" style="flex:1">Export CSV</button>'+
+      '</div>'+
+      '<div class="actions" style="margin-top:10px">'+
+        '<button class="btn btn-ghost" id="impBtn" style="flex:1">Import JSON</button>'+
+        '<button class="btn btn-ghost" id="keyBtn" style="flex:1">Change API key</button>'+
+      '</div>'+
+    '</div>'+
+    '<div class="actions">'+
+      '<button class="btn btn-ghost" id="setClose" style="flex:1">Close</button>'+
+      '<button class="btn btn-primary" id="setSave" style="flex:1.4">Save changes</button>'+
+    '</div></div>');
+
+  document.getElementById("addCatBtn").onclick = ()=>{
+    const name = document.getElementById("newCatName").value.trim();
+    if(!name) return;
+    const id = "c"+Date.now();
+    CATEGORIES.push({id, label:name, color:PALETTE[CATEGORIES.length % PALETTE.length]});
+    saveCats(); openSettings();
+  };
+  document.getElementById("setClose").onclick = ()=>{ closeModal(); };
+  document.getElementById("setSave").onclick = ()=>{
+    document.querySelectorAll("[data-catid]").forEach(inp=>{
+      const c = CATEGORIES.find(c=>c.id===inp.dataset.catid);
+      if(c && inp.value.trim()) c.label = inp.value.trim();
+    });
+    budgets = {};
+    document.querySelectorAll("[data-budid]").forEach(inp=>{
+      const v = parseFloat(inp.value);
+      if(v>0) budgets[inp.dataset.budid] = v;
+    });
+    saveCats(); saveBudgets(); closeModal(); renderAll();
+  };
+  document.getElementById("expJson").onclick = exportJson;
+  document.getElementById("expCsv").onclick = exportCsv;
+  document.getElementById("impBtn").onclick = ()=>document.getElementById("importInput").click();
+  document.getElementById("keyBtn").onclick = ()=>{ closeModal(); askForKey(()=>{}); };
+}
+
+function download(filename, text, mime){
+  const blob = new Blob([text], {type:mime});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+function stamp(){ return new Date().toISOString().slice(0,10); }
+function exportJson(){
+  const payload = {version:1, exported:new Date().toISOString(), categories:CATEGORIES, budgets, expenses};
+  download("receipt-ledger-"+stamp()+".json", JSON.stringify(payload,null,2), "application/json");
+}
+function exportCsv(){
+  const cols = ["date","merchant","category","total","tax","currency","note"];
+  const head = cols.join(",");
+  const lines = expenses.map(x=>cols.map(k=>{
+    let v = k==="category" ? catOf(x.category).label : (x[k]==null?"":x[k]);
+    v = String(v).replace(/"/g,'""');
+    return /[",\n]/.test(v) ? '"'+v+'"' : v;
+  }).join(","));
+  download("receipt-ledger-"+stamp()+".csv", [head,...lines].join("\n"), "text/csv");
+}
+document.getElementById("importInput").addEventListener("change", async e=>{
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if(!file) return;
+  try{
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if(!data || !Array.isArray(data.expenses)) throw new Error("Not a valid backup file.");
+    showModal('<div class="modal">'+
+      '<div style="font-weight:700;font-size:17px;margin-bottom:8px">Import backup?</div>'+
+      '<div class="hint">Found '+data.expenses.length+' expenses. Choose how to bring them in.</div>'+
+      '<div class="actions"><button class="btn btn-ghost" id="impMerge" style="flex:1">Merge</button>'+
+      '<button class="btn btn-primary" id="impReplace" style="flex:1">Replace all</button></div>'+
+      '<button class="btn btn-ghost" id="impCancel" style="width:100%;margin-top:10px">Cancel</button></div>');
+    const apply = (replace)=>{
+      if(Array.isArray(data.categories) && data.categories.length){ CATEGORIES = data.categories; saveCats(); }
+      if(data.budgets && typeof data.budgets==="object"){ budgets = data.budgets; saveBudgets(); }
+      if(replace){ expenses = data.expenses; }
+      else {
+        const ids = new Set(expenses.map(x=>x.id));
+        data.expenses.forEach(x=>{ if(!ids.has(x.id)) expenses.push(x); });
+      }
+      expenses.sort((a,b)=>a.date<b.date?1:-1);
+      save(); closeModal(); renderAll();
+    };
+    document.getElementById("impMerge").onclick = ()=>apply(false);
+    document.getElementById("impReplace").onclick = ()=>apply(true);
+    document.getElementById("impCancel").onclick = closeModal;
+  }catch(err){
+    showModal('<div class="modal"><div style="font-weight:700;color:var(--red);margin-bottom:8px">Import failed</div>'+
+      '<div class="hint">'+esc(err.message||"Couldn\'t read that file.")+'</div>'+
+      '<button class="btn btn-primary" id="impErrOk" style="width:100%;margin-top:14px">OK</button></div>');
+    document.getElementById("impErrOk").onclick = closeModal;
+  }
 });
 
 
